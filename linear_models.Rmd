@@ -1,0 +1,94 @@
+---
+title: "linear_models"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+
+set.seed(1)
+```
+
+```{r}
+data(nyc_airbnb)
+```
+
+Look at data / do some cleaning.
+
+```{r}
+nyc_airbnb = 
+  nyc_airbnb |> 
+  mutate(
+    stars = review_scores_location / 2
+  ) |> 
+  rename(
+    borough = neighbourhood_group
+  ) |> 
+  filter(borough != "Staten Island") |> 
+  select(price, stars, borough, room_type, neighbourhood)
+```
+
+
+fit regression
+
+borough is character variable. R converts to factor, then runs regression. It creates dummy variables for you by alphabetical order based on factor order. In this case brooklyn is the reference?
+
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+```
+
+additional cleaning then refit
+
+fct_infreq - put categories in order of what frequency they appear in dataset. the biggest category is first. Make reference group your biggest category for borough
+
+```{r}
+nyc_airbnb= 
+  nyc_airbnb |> 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type)
+  )
+
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+```
+
+look at lm stuff
+
+see 
+
+```{r, eval = F}
+summary(fit)
+names(summary(fit))
+summary(fit)[["coefficients"]]
+summary(fit)[["df"]]
+
+fitted.values(fit)
+```
+
+look at cleaner `lm` stuff
+
+```{r}
+fit |> 
+  broom::tidy() |> 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ")
+  ) |> 
+  select(term, estimate, p.value) |> 
+  knitr::kable(digits = 3)
+
+fit |> 
+  broom::glance()
+
+```
+
+
+
+
+
+
+
+
+
+
