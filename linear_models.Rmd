@@ -65,6 +65,7 @@ summary(fit)[["coefficients"]]
 summary(fit)[["df"]]
 
 fitted.values(fit)
+residu(fit)
 ```
 
 look at cleaner `lm` stuff
@@ -84,11 +85,186 @@ fit |>
 ```
 
 
+## Diagnostics
+
+look at residuals. 
+
+Any time you fit a model have to do this
+
+```{r}
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # adds residuals to table
+  modelr::add_predictions(fit) |> 
+  filter(resid < 1000) |> 
+  ggplot(aes(x =resid)) +
+  geom_histogram()
+
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # adds residuals to table
+  modelr::add_predictions(fit) |> 
+  filter(resid < 1000) |> 
+  ggplot(aes(x = borough, y = resid)) +
+  geom_violin()
+
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # adds residuals to table
+  modelr::add_predictions(fit) |> 
+  filter(resid < 1000) |> 
+  ggplot(aes(x = stars, y = resid)) +
+  geom_point()
+```
+
+
+## Hypothesis testing
+
+this is for individual predictors
+```{r}
+fit |> 
+  broom::tidy()
+```
+
+but what about categorical predictor
+
+```{r}
+fit_alt = lm(price ~ stars + borough + room_type, data = nyc_airbnb)
+fit_null = lm(price ~ stars + borough , data = nyc_airbnb)
+
+anova(fit_null, fit_alt) |> 
+  broom::tidy()
+```
+
+## Interactions vs nested data
+
+
+```{r}
+fit_interactions = 
+  lm(price ~ stars + room_type * borough, data = nyc_airbnb)
+
+fit_interactions |> 
+  broom::tidy()
+```
+the effect of start in brooklyn is 27.1-6.14
+
+
+Lets just look at brooklyn first
+```{r}
+nyc_airbnb |> 
+  filter(borough == "Brooklyn") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Manhattan") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Bronx") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Queens") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+```
+
+
+start here for homework problem
+write a short function to do the above
+
+```{r}
+lm_airbnb = function(df) {
+  
+  lm(price ~ stars + room_type, data = df)
+}
+
+nyc_airbnb |> 
+  filter(borough == "Queens") |> 
+  lm_airbnb() |> 
+  broom::tidy()
+```
+
+Create a list of dataframes, and iterate to fit the model each time
+
+```{r}
+nested_lm_results = 
+  nyc_airbnb |> 
+  nest(data = -borough) |> 
+  mutate(
+    fits = map(data, lm_airbnb),
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(borough, results) |> 
+  unnest(results)
+
+```
 
 
 
+do some untidying
+
+below, we don't get p values but see the difference between boroughs for exploratory analysis
+
+```{r}
+nested_lm_results |> 
+  select(borough, term, estimate) |> 
+  pivot_wider(
+    names_from = term, 
+    values_from = estimate
+  )
+  
+```
+
+
+use an *anonymous* function instead of `lm_airbnb`
+
+the backslash thing is to allow you to not need to have the function on the side
+
+```{r}
+nested_lm_results = 
+  nyc_airbnb |> 
+  nest(data = -borough) |> 
+  mutate(
+    fits = map(data, \(df) lm(price ~ stars + room_type, data = df)), 
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(borough, results) |> 
+  unnest(results)
+```
 
 
 
+let's do an even more extreme example
 
+effect of stars in different neighborhoods
+```{r}
+manhattan_analysis = 
+  nyc_airbnb |> 
+  filter(
+    borough == "Manhattan"
+  ) |> 
+  nest(data = -neighbourhood) |> 
+  mutate(
+    fits = map(data, \(df) lm(price ~ stars + room_type, data = df)),
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(neighbourhood, results) |> 
+  unnest(results)
+```
+
+Make a plot
+
+effect of increasing start values across neihgborhoods in manhattan
+
+```{r}
+manhattan_analysis |> 
+  filter(term == "stars") |> 
+  mutate(
+    neighbourhood = fct_reorder(neighbourhood, estimate)
+  ) |> 
+  ggplot(aes(x = neighbourhood, y = estimate)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
