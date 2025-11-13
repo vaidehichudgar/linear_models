@@ -1,0 +1,255 @@
+---
+title: "bootstrapping"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+library(modelr)
+
+
+```
+
+simulate two datasets
+
+```{r}
+set.seed(1)
+
+n_samp = 250
+
+sim_df_const = 
+  tibble(x = rnorm(n_samp, 1, 1),
+         error = rnorm(n_samp, 0, 1),
+         y = 2 + 3 * x + error
+         )
+
+
+sim_df_nonconst = 
+  sim_df_const |> 
+  mutate(
+    error = 0.75 * error * x ,
+    y = 2 + 3 * x + error) # the error depends on X you have. error dist depends on x in a way that violates linear regression assumption
+```
+
+look at these data
+
+```{r}
+sim_df_const |> 
+  ggplot(aes(x = x, y = y)) + 
+  geom_point()
+
+sim_df_nonconst |> 
+  ggplot(aes(x = x, y = y)) + 
+  geom_point()
+```
+
+ if you do lienar regression on non const, ur gonna get incorrect values since assumptions are violated
+ 
+ 
+```{r}
+sim_df_const |> 
+  lm( y ~ x , data = _) |> 
+  broom::tidy() |> 
+  knitr::kable(digits = 3)
+
+sim_df_nonconst |> 
+  lm( y ~ x , data = _) |> 
+  broom::tidy() |> 
+  knitr::kable(digits = 3) 
+
+# should be getting narrow error for intercept non const intercept, but we see same standard error for both datasets
+```
+
+
+write function to draw bootstrap sample
+
+
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, size = 1, replace = T) # take dataframe, give me a different sample with replace = True everytime
+}
+
+
+```
+
+does function work
+
+```{r}
+sim_df_nonconst |> 
+boot_sample() |> 
+  ggplot(aes(x = x, y = y)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = F) +
+  xlim(c(-2, 4)) +
+  ylim(c(-5, 16))
+```
+
+
+formalizae and extract results
+
+```{r}
+boot_straps = 
+  tibble(
+    iter = 1:5000
+  ) |> 
+  mutate(
+    bootstrap_sample = map(iter, \(i) boot_sample(df = sim_df_nonconst))
+  )
+```
+
+
+check you work
+
+```{r}
+boot_straps |> 
+  pull(bootstrap_sample) |> 
+  nth(2) |> 
+  ggplot(aes(x = x, y = y)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = F) +
+  xlim(c(-2, 4)) +
+  ylim(c(-5, 16))
+```
+
+actually run my analyses
+
+```{r}
+bootstrap_results =
+  boot_straps |> 
+  mutate(
+    fits = map(bootstrap_sample, \(df) lm(y~x, data = df)),
+    results = map(fits, broom::tidy)
+  )
+```
+
+
+look at reuslts
+
+```{r}
+bootstrap_results |> 
+  select(iter, results) |> 
+  unnest(results) |>  # 10 diff intercepts, and 10 diff slopes
+  group_by(term) |> 
+  summarize(
+    mean = mean(estimate),
+    se = sd(estimate)
+  )
+  
+
+compare the above to kable digits = 3. see that se for slope is more than se for itnercept
+```
+
+look at these firts
+
+distribution of estimated slopes
+
+```{r}
+bootstrap_results |> 
+  select(iter, results) |> 
+  unnest(results) |> 
+  filter(term == "x") |> 
+  ggplot(aes(x = estimate)) +
+  geom_density()
+
+
+bootstrap_results |> 
+  select(iter, results) |> 
+  unnest(results) |> 
+  group_by(term) |> 
+  summarise(
+    ci_lower = quantile(estimate, 0.025),
+    ci_upper = quantile(estimate, 0.975)
+  )
+```
+
+
+do the same as above more consolidated
+
+```{r}
+sim_df_nonconst |> 
+  bootstrap(n = 10)
+```
+
+make the dataframe
+fit linear model
+extract avlues
+
+```{r}
+sim_df_nonconst |> 
+  bootstrap(n = 10) |> 
+  mutate(
+    df = map(strap, as_tibble),
+    fits = map(df, \(df) lm(y ~ x, data = df)),
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(.id, results) |> 
+  unnest(results)
+```
+
+
+look at waht this means
+
+```{r}
+bootstrap_results |> 
+  group_by(term) |> 
+  summarize(
+    mean = mean(estimate),
+    se = sd(estimate)
+  )
+```
+
+
+# AIrbnb
+
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb |> 
+  mutate(stars = review_scores_location / 2) |> 
+  rename(
+    borough = neighbourhood_group
+  ) |> 
+  filter(
+    borough != "Staten Island"
+  ) |> 
+  drop_na(price, stars, room_type) |> 
+  select(price, stars, room_type, borough)
+```
+
+what does data look like
+
+```{r}
+nyc_airbnb |> 
+  ggplot(aes(x = stars, y = price, color = room_type)) +
+  geom_point(alpha = 0.5)
+```
+
+
+try to do bootstrap
+
+hw6 q2 code is similar to this
+```{r}
+airbnb_bootstrap_results = 
+  nyc_airbnb |> 
+  filter (borough == "Manhattan") |> 
+  bootstrap(n=1000) |> 
+  mutate(
+    df = map(strap, as_tibble),
+    fits = map(df, \(df) lm(price ~ stars + room_type, data = df)),
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(.id, results) |> 
+  unnest(results)
+```
+
+
+look at distribution of slope of stars
+```{r}
+airbnb_bootstrap_results |> 
+  filter(term == "stars") |> 
+  ggplot(aes(x = estimate)) +
+  geom_density()
+```
+
