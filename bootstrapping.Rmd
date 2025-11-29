@@ -137,7 +137,7 @@ bootstrap_results |>
   )
   
 
-compare the above to kable digits = 3. see that se for slope is more than se for itnercept
+#compare the above to kable digits = 3. see that se for slope is more than se for itnercept
 ```
 
 look at these firts
