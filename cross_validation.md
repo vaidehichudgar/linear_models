@@ -97,19 +97,19 @@ Calculate rmse
 rmse(linear_mod, test_df)
 ```
 
-    ## [1] 0.1262218
+    ## [1] 0.1488944
 
 ``` r
 rmse(smooth_mod, test_df)
 ```
 
-    ## [1] 0.08264608
+    ## [1] 0.08333726
 
 ``` r
 rmse(wiggly_mod, test_df)
 ```
 
-    ## [1] 0.09109566
+    ## [1] 0.1046377
 
 ``` r
 # smooth better than linear, wiggly doing too much
@@ -141,12 +141,12 @@ cv_df |> pull(train) |> nth(1)
     ##  2   391  -0.0601     2
     ##  3   393  -0.0419     3
     ##  4   394  -0.0510     4
-    ##  5   399  -0.0596     7
-    ##  6   400  -0.0399     8
-    ##  7   402  -0.0294     9
-    ##  8   403  -0.0395    10
-    ##  9   405  -0.0476    11
-    ## 10   406  -0.0604    12
+    ##  5   396  -0.0599     5
+    ##  6   397  -0.0284     6
+    ##  7   399  -0.0596     7
+    ##  8   400  -0.0399     8
+    ##  9   402  -0.0294     9
+    ## 10   403  -0.0395    10
     ## # ℹ 166 more rows
 
 ``` r
@@ -201,3 +201,100 @@ cv_df |>
 ``` r
 # see linear model is worst, best is smooth
 ```
+
+## Child growth
+
+``` r
+growth_df = 
+  read_csv("data/nepalese_children.csv")
+```
+
+    ## Rows: 2705 Columns: 5
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: ","
+    ## dbl (5): age, sex, weight, height, armc
+    ## 
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+``` r
+growth_df |> 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .5)
+```
+
+![](cross_validation_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+
+Lets fit som emodels. Piece wise linear model is linear but changes
+slopes at certain point
+
+``` r
+growth_df =
+  growth_df |> 
+  mutate(
+    weight_cp7 = (weight > 7) * (weight - 7)
+  )
+
+# the change point is at age 7
+```
+
+let’s fit three models
+
+``` r
+linear_mod = lm(armc ~ weight, data = growth_df)
+pwl_mod    = lm(armc ~ weight + weight_cp7, data = growth_df)
+smooth_mod = mgcv::gam(armc ~ s(weight), data = growth_df)
+```
+
+put the predictions on the graph
+
+``` r
+growth_df |> 
+  add_predictions(pwl_mod) |> 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = .5) + 
+  geom_line(aes(y = pred), color = "red")
+```
+
+![](cross_validation_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
+
+now cross validate
+
+``` r
+cv_df = 
+  crossv_mc(growth_df, n = 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_df = 
+  cv_df |> 
+  mutate(
+    linear_mod = map(train, \(df) lm(armc ~ weight, data = df)),
+    pwl_mod    = map(train, \(df) lm(armc ~ weight + weight_cp7, data = df)),
+    smooth_mod = map(train, \(df) mgcv::gam(armc ~ s(weight), data = df))
+  ) |> 
+  mutate(
+    rmse_linear = map2_dbl(linear_mod, test, rmse),
+    rmse_pwl    = map2_dbl(pwl_mod, test, rmse),
+    rmse_smooth = map2_dbl(smooth_mod, test, rmse)
+  )
+```
+
+Look at the violin plots
+
+``` r
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |> 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin()
+```
+
+![](cross_validation_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->

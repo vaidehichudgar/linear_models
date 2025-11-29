@@ -144,7 +144,87 @@ cv_df |>
 ```
 
 
+## Child growth
+
+```{r}
+growth_df = 
+  read_csv("data/nepalese_children.csv")
+```
 
 
+```{r}
+growth_df |> 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .5)
+```
 
+Lets fit som emodels.
+Piece wise linear model is linear but changes slopes at certain point
+
+```{r}
+growth_df =
+  growth_df |> 
+  mutate(
+    weight_cp7 = (weight > 7) * (weight - 7)
+  )
+
+# the change point is at age 7
+```
+
+let's fit three models
+
+```{r}
+linear_mod = lm(armc ~ weight, data = growth_df)
+pwl_mod    = lm(armc ~ weight + weight_cp7, data = growth_df)
+smooth_mod = mgcv::gam(armc ~ s(weight), data = growth_df)
+```
+
+put the predictions on the graph
+
+```{r}
+growth_df |> 
+  add_predictions(pwl_mod) |> 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = .5) + 
+  geom_line(aes(y = pred), color = "red")
+```
+
+now cross validate
+
+```{r}
+cv_df = 
+  crossv_mc(growth_df, n = 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_df = 
+  cv_df |> 
+  mutate(
+    linear_mod = map(train, \(df) lm(armc ~ weight, data = df)),
+    pwl_mod    = map(train, \(df) lm(armc ~ weight + weight_cp7, data = df)),
+    smooth_mod = map(train, \(df) mgcv::gam(armc ~ s(weight), data = df))
+  ) |> 
+  mutate(
+    rmse_linear = map2_dbl(linear_mod, test, rmse),
+    rmse_pwl    = map2_dbl(pwl_mod, test, rmse),
+    rmse_smooth = map2_dbl(smooth_mod, test, rmse)
+  )
+```
+
+Look at the violin plots
+
+```{r}
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |> 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin()
+```
 
